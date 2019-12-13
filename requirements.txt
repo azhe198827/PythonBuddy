@@ -23,5 +23,5 @@ pytest==5.2.1
 pytest-cov==2.8.1
 pytest-html==2.0.0
 Cython==0.29.14
-rqalpha==3.4.2
-TA-Lib==0.4.17
+#rqalpha==3.4.2
+#TA-Lib==0.4.17
