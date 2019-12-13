@@ -87,7 +87,7 @@ def run_code():
     session["time_now"] = datetime.now()
 
     output = None
-    cmd = 'python ' + session["file_name"]
+    cmd = 'python3 ' + session["file_name"]
     p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
               stderr=STDOUT, close_fds=True)
     output = p.stdout.read()
