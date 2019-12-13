@@ -87,7 +87,17 @@ def run_code():
     session["time_now"] = datetime.now()
 
     output = None
-    cmd = 'python3 ' + session["file_name"]
+    file_start = open('/python/start.py','rb').read()
+    file_middle = open(session["file_name"],'rb').read()
+    file_end = open('/python/end.py','rb').read()
+    file_new = open('/python/run.py','wb')
+    file_new.write(file_start)
+    file_new.write(file_middle)
+    file_new.write(file_end)
+    file_new.close()
+    #cmd = 'python3 ' + session["file_name"]
+    cmd = 'python3 /python/run.py'
+    #cmd = 'python3 ' + session["file_name"]
     p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
               stderr=STDOUT, close_fds=True)
     output = p.stdout.read()
