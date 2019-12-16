@@ -127,7 +127,8 @@ $(document).ready(function() {
 
     function print_result(data) {
       document.getElementById('output').innerHTML = '';
-      $("#output").append("<pre>" + data + "</pre>");
+      $("#output").append("<pre>" + data[0] + "</pre>");
+      $("#img").append("<img src='data:image/png;base64," + data[1] + "'</img>");
     }
   });
   var exampleCode = function(id, text) {

@@ -7,7 +7,7 @@ v2.1.0 created on 5/10/19
 Improve efficiency and design
  """
 from .pylint_errors import pylint_dict_final
-from flask import Flask, render_template, request, jsonify, session
+from flask import Response,Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO
 import eventlet.wsgi
 import tempfile, mmap, os, re
@@ -15,7 +15,7 @@ from datetime import datetime
 from pylint import epylint as lint
 from subprocess import Popen, PIPE, STDOUT
 from multiprocessing import Pool, cpu_count
-
+import base64
 
 def is_os_linux():
     if os.name == "nt":
@@ -70,7 +70,26 @@ def check_code():
     # MANAGER.astroid_cache.clear()
     return jsonify(output)
 
+@app.route('/image', methods=['post', 'get'])
+def image():
+
+    path = "/Users/mingzhepan/github/PythonBuddy/PythonBuddy/static/image/a.png"
+
+    resp = Response(open(path, 'rb'), mimetype="image/jpeg")
+    return resp
+
+
 # Run python in secure system
+
+
+def return_img_stream(img_local_path):
+    img_local_path = "/Users/mingzhepan/github/PythonBuddy/PythonBuddy/static/image/a.png"
+    import base64
+    img_stream = ''
+    with open(img_local_path, 'r') as img_f:
+        img_stream = img_f.read()
+        img_stream = base64.b64encode(img_stream)
+    return img_stream
 
 
 @app.route('/run_code', methods=['POST'])
@@ -87,30 +106,43 @@ def run_code():
     session["time_now"] = datetime.now()
 
     output = None
-    ioa_name = session["file_name"]
-    ioa_root_path = '/data/' + ioa_name + '/'
-    cmd = 'mkdir -p ' + ioa_root_path
-    os.system(cmd)
-    cmd = 'cp /data/third.tar ' + ioa_root_path
-    os.system(cmd)
-    cmd = 'tar -xvf ' + ioa_root_path + 'third.tar -C ' + ioa_root_path
-    os.system(cmd)
-    file_start = open(ioa_root_path + '/start.py', 'rb').read()
-    file_middle = open(session["file_name"], 'rb').read()
-    file_end = open(ioa_root_path + '/end.py', 'rb').read()
-    file_new = open(ioa_root_path + '/run.py', 'wb')
+    if 1:
+        ioa_name = session["file_name"]
+        ioa_root_path = '/data/' + ioa_name + '/'
+        cmd = 'mkdir -p ' + ioa_root_path
+        os.system(cmd)
+        cmd = 'cp /data/third.tar ' + ioa_root_path
+        os.system(cmd)
+        cmd = 'tar -xvf ' + ioa_root_path + 'third.tar -C ' + ioa_root_path
+        os.system(cmd)
+        file_start = open(ioa_root_path + '/start.py', 'rb').read()
+        file_middle = open(session["file_name"], 'rb').read()
+        file_end = open(ioa_root_path + '/end.py', 'rb').read()
+        file_new = open(ioa_root_path + '/run.py', 'wb')
 
-    file_new.write(file_start)
-    file_new.write(file_middle)
-    file_new.write(file_end)
-    file_new.close()
-    # cmd = 'python3 ' + session["file_name"]
-    cmd = 'python3 ' + ioa_root_path + '/run.py'
-    p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
+        file_new.write(file_start)
+        file_new.write(file_middle)
+        file_new.write(file_end)
+        file_new.close()
+        cmd = 'python3 ' + ioa_root_path + '/run.py'
+        image_path = ioa_root_path+'/a.png'
+        f = open(image_path, 'rb')
+        image = base64.b64encode(f.read())
+        p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
+                  stderr=STDOUT, close_fds=True)
+        output = p.stdout.read()
+        return jsonify({0: output.decode('utf-8'), 1: image})
+    else:
+        cmd = 'python3 ' + session["file_name"]
+
+        p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
               stderr=STDOUT, close_fds=True)
-    output = p.stdout.read()
+        output = p.stdout.read()
+        path = '/Users/mingzhepan/github/PythonBuddy/image/a.png'
+        f= open(path,'rb')
+        image = base64.b64encode(f.read())
+        return jsonify({0:output.decode('utf-8'),1:image})
 
-    return jsonify(output.decode('utf-8'))
 
 # Slow down if user clicks "Run" too many times
 def slow():

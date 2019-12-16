@@ -34,7 +34,6 @@
 </head>
 
 <body>
-    <a href="https://github.com/ethanchewy/PythonBuddy"><img style="position: absolute; top: 0; left: 0; border: 0;" src="https://s3.amazonaws.com/github/ribbons/forkme_left_gray_6d6d6d.png" alt="Fork me on GitHub"></a>
     <div class="text-center" id="info">
         <h1>Python Linter Online</h1> <i>Live Syntax Checking Using Pylint while Running Python </i>
         <p> Examples: <a href="#" id="codeexample1">1</a> <a href="#" id="codeexample2">2</a> <a href="#" id="codeexample3">3</a> <a href="#" id="codeexample4">4</a> <a href="#" id="codeexample5">5</a> <a href="#" id="codeexample6">6</a> <a href="#" id="codeexample7">7</a> </p>
@@ -42,12 +41,36 @@
     <br>
     <div class="container">
         <textarea id="txt">
-def foo(bar, baz):
+# 可以自己import我们平台支持的第三方python模块，比如pandas、numpy等。
+
+# 在这个方法中编写任何的初始化逻辑。context对象将会在你的算法策略的任何方法之间做传递。
+def init(context):
+    context.s1 = "000001.XSHE"
+    # 实时打印日志
+    logger.info("Interested at stock: " + str(context.s1))
+
+# before_trading此函数会在每天交易开始前被调用，当天只会被调用一次
+def before_trading(context, bar_dict):
     pass
-foo(42)
+
+
+# 你选择的证券的数据更新将会触发此段逻辑，例如日或分钟历史数据切片或者是实时数据切片更新
+def handle_bar(context, bar_dict):
+    # 开始编写你的主要的算法逻辑
+
+    # bar_dict[order_book_id] 可以拿到某个证券的bar信息
+    # context.portfolio 可以拿到现在的投资组合状态信息
+
+    # 使用order_shares(id_or_ins, amount)方法进行落单
+
+    # TODO: 开始编写你的算法吧！
+    order_shares(context.s1, 1000)
         </textarea>
         <br>
         <button type="button" id="run" class="btn btn-success">Run</button>
+        <br>
+        <br>
+        <div id='img'></div>
         <br>
         <br>
         <div id="output"> <pre></pre> </div>
@@ -67,7 +90,6 @@ foo(42)
         </div>
     </div>
     <br>
-    <footer>Created by <a href="https://github.com/ethanchewy">Ethan Chiu</a></footer>
 </body>
 <script src="/static/js/javascript.js" type="text/javascript"></script>
 
