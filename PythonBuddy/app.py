@@ -87,17 +87,25 @@ def run_code():
     session["time_now"] = datetime.now()
 
     output = None
-    file_start = open('/python/start.py','rb').read()
-    file_middle = open(session["file_name"],'rb').read()
-    file_end = open('/python/end.py','rb').read()
-    file_new = open('/python/run.py','wb')
+    ioa_name = session["file_name"]
+    ioa_root_path = '/data/' + ioa_name + '/'
+    cmd = 'mkdir -p ' + ioa_root_path
+    os.system(cmd)
+    cmd = 'cp /data/third.tar ' + ioa_root_path
+    os.system(cmd)
+    cmd = 'tar -xvf ' + ioa_root_path + 'third.tar -C ' + ioa_root_path
+    os.system(cmd)
+    file_start = open(ioa_root_path + '/start.py', 'rb').read()
+    file_middle = open(session["file_name"], 'rb').read()
+    file_end = open(ioa_root_path + '/end.py', 'rb').read()
+    file_new = open(ioa_root_path + '/run.py', 'wb')
+
     file_new.write(file_start)
     file_new.write(file_middle)
     file_new.write(file_end)
     file_new.close()
-    #cmd = 'python3 ' + session["file_name"]
-    cmd = 'python3 /python/run.py'
-    #cmd = 'python3 ' + session["file_name"]
+    # cmd = 'python3 ' + session["file_name"]
+    cmd = 'python3 ' + ioa_root_path + '/run.py'
     p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
               stderr=STDOUT, close_fds=True)
     output = p.stdout.read()
