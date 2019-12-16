@@ -125,12 +125,13 @@ def run_code():
         file_new.write(file_end)
         file_new.close()
         cmd = 'python3 ' + ioa_root_path + '/run.py'
-        image_path = ioa_root_path+'/a.png'
-        f = open(image_path, 'rb')
-        image = base64.b64encode(f.read())
+
         p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
                   stderr=STDOUT, close_fds=True)
         output = p.stdout.read()
+        image_path = ioa_root_path + '/a.png'
+        f = open(image_path, 'rb')
+        image = base64.b64encode(f.read())
         return jsonify({0: output.decode('utf-8'), 1: image})
     else:
         cmd = 'python3 ' + session["file_name"]
