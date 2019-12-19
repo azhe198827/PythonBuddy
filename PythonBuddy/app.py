@@ -6,7 +6,7 @@ Uses Python 3 now
 v2.1.0 created on 5/10/19
 Improve efficiency and design
  """
-from .pylint_errors import pylint_dict_final
+from pylint_errors import pylint_dict_final
 from flask import Response,Flask, render_template, request, jsonify, session
 from flask_socketio import SocketIO
 import eventlet.wsgi
@@ -63,12 +63,16 @@ def check_code():
         https://github.com/PyCQA/pylint/blob/master/pylint/lint.py
     """
     # Session to handle multiple users at one time and to get textarea from AJAX call
-    session["code"] = request.form['text']
-    text = session["code"]
-    output = evaluate_pylint(text)
-
+    #session["code"] = request.form['text']
+    #text = session["code"]
+    #output = evaluate_pylint(text)
+    print("check code")
+    #output=format_errors("\n\n\n")
+    #ret = jsonify(output)
+   # print("check code:",ret)
+    #print("check code output",output)
     # MANAGER.astroid_cache.clear()
-    return jsonify(output)
+    return #ret
 
 @app.route('/image', methods=['post', 'get'])
 def image():
@@ -101,8 +105,27 @@ def run_code():
             }
     """
     # Don't run too many times
+    session["code"] = request.form['text']
+    text = session["code"]
+    try:
+        session["file_name"]
+        f = open(session["file_name"], "w")
+        for t in text:
+            f.write(t)
+        f.flush()
+        f.close()
+    except KeyError as e:
+        with tempfile.NamedTemporaryFile(delete=False) as temp:
+            session["file_name"] = temp.name
+            for t in text:
+                temp.write(t.encode("utf-8"))
+            temp.flush()
+            temp.close()
+
+
     if slow():
-        return jsonify("Running code too much within a short time period. Please wait a few seconds before clicking \"Run\" each time.")
+        print("/run_code exit slow")
+        return jsonify({0:"Running code too much within a short time period. Please wait a few seconds before clicking \"Run\" each time.",1:""})
     session["time_now"] = datetime.now()
 
     output = None
@@ -177,13 +200,14 @@ def evaluate_pylint(text):
         for t in text:
             f.write(t)
         f.flush()
+        f.close()
     except KeyError as e:
         with tempfile.NamedTemporaryFile(delete=False) as temp:
             session["file_name"] = temp.name
             for t in text:
                 temp.write(t.encode("utf-8"))
             temp.flush()
-
+            temp.close()
     try:
         ARGS = " -r n --disable=R,C"
         (pylint_stdout, pylint_stderr) = lint.py_run(
@@ -344,10 +368,10 @@ def remove_temp_code_file():
 
 @socketio.on('disconnect', namespace='/check_disconnect')
 def disconnect():
-    """Remove temp file associated with current session"""
-    remove_temp_code_file()
+    print("disconnetct")
+    pass
 
 
 if __name__ == "__main__":
-    """Initialize app"""
+    """Initialize app""" 
     socketio.run(app)
