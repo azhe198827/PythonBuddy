@@ -6,8 +6,7 @@ Uses Python 3 now
 v2.1.0 created on 5/10/19
 Improve efficiency and design
  """
-from pylint_errors import pylint_dict_final
-from flask import Response,Flask, render_template, request, jsonify, session
+from flask import Response, Flask, render_template, request, jsonify, session, redirect, url_for
 from flask_socketio import SocketIO
 import eventlet.wsgi
 import tempfile, mmap, os, re
@@ -16,21 +15,57 @@ from pylint import epylint as lint
 from subprocess import Popen, PIPE, STDOUT
 from multiprocessing import Pool, cpu_count
 import base64
+import config
+import time
+import hashlib
+
 
 def is_os_linux():
     if os.name == "nt":
         return False
     return True
 
+
 # Configure Flask App
 # Remember to change the SECRET_KEY!
-app = Flask(__name__)
+app = Flask(__name__, static_url_path='/nb/static')
 app.config['SECRET_KEY'] = 'secret!'
 app.config['DEBUG'] = True
 socketio = SocketIO(app)
 
 # Get number of cores for multiprocessing
 num_cores = cpu_count()
+
+
+def check_sign():
+    timestamp = request.headers.get('timestamp')
+    signature = request.headers.get('signature')
+    staffid = request.headers.get('staffid')
+    staffname = request.headers.get('staffname')
+    x_rio_seq = request.headers.get('x-rio-seq')
+    x_ext_data = request.headers.get('x-ext-data')
+
+    if not (timestamp or signature or staffid or staffname or x_rio_seq):
+        return 'tof request missing param'
+
+    # 不许超过180秒
+    if int(time.time()) - int(timestamp) > 180:
+        return 'timestamp check failure'
+
+    params = (timestamp + config.tof_token + x_rio_seq + ',' + staffid +
+              ',' + staffname + ',' + x_ext_data + timestamp).encode('utf-8')
+
+    # 验签
+    computer_signature = hashlib.sha256(params).hexdigest().upper()
+    if computer_signature != signature:
+        return 'signature failure'
+
+    return None
+
+
+def get_username():
+    return request.headers.get('staffname')
+
 
 @app.route('/')
 def index():
@@ -44,39 +79,41 @@ def index():
     return render_template("index.html")
 
 
-@app.route('/check_code', methods=['POST'])
-def check_code():
-    """Run pylint on code and get output
-        :return: JSON object of pylint errors
-            {
-                {
-                    "code":...,
-                    "error": ...,
-                    "message": ...,
-                    "line": ...,
-                    "error_info": ...,
-                }
-                ...
-            }
+@app.route('/nb/error')
+def error():
+    error_msg = request.args.get("error_msg")
+    if not error_msg:
+        error_msg = '发生错误'
+    return render_template("error.html", error_msg=error_msg)
 
-        For more customization, please look at Pylint's library code:
-        https://github.com/PyCQA/pylint/blob/master/pylint/lint.py
-    """
-    # Session to handle multiple users at one time and to get textarea from AJAX call
-    #session["code"] = request.form['text']
-    #text = session["code"]
-    #output = evaluate_pylint(text)
-    print("check code")
-    #output=format_errors("\n\n\n")
-    #ret = jsonify(output)
-   # print("check code:",ret)
-    #print("check code output",output)
-    # MANAGER.astroid_cache.clear()
-    return #ret
 
-@app.route('/image', methods=['post', 'get'])
+@app.route('/nb/<username>/<notebook>')
+def user_notebook(username, notebook):
+    check_ret = check_sign()
+    if check_ret is not None:
+        return redirect(url_for('error', error_msg=check_ret))
+    visitor = get_username()
+
+    readonly = bool(request.args.get('readonly'))
+
+    session["count"] = 0
+    session["time_now"] = datetime.now()
+    notebook_path = '%s/notebook/%s/%s.py' % (config.quant_dir, username, notebook)
+    if not os.path.exists(notebook_path):
+        return redirect(url_for('error'))
+
+    modify_time = time.strftime('%Y-%m-%d %H:%M', time.localtime(os.path.getmtime(notebook_path)))
+
+    notebook_content = ''
+    with open(notebook_path) as n:
+        notebook_content = n.read()
+
+    return render_template("index.html", notebook_content=notebook_content,
+                           modify_time=modify_time, readonly=str(visitor != username or readonly))
+
+
+@app.route('/nb/image', methods=['post', 'get'])
 def image():
-
     path = "/Users/mingzhepan/github/PythonBuddy/PythonBuddy/static/image/a.png"
 
     resp = Response(open(path, 'rb'), mimetype="image/jpeg")
@@ -96,76 +133,130 @@ def return_img_stream(img_local_path):
     return img_stream
 
 
-@app.route('/run_code', methods=['POST'])
+@app.route('/nb/save_code', methods=['POST'])
+def save_code():
+    check_ret = check_sign()
+    if check_ret is not None:
+        return redirect(url_for('error', error_msg=check_ret))
+    visitor = get_username()
+
+    text = request.form['text']
+    username = request.form['username']
+    notebook = request.form['notebook']
+
+    if visitor != username:
+        return
+
+    notebook_path = '%s/notebook/%s/%s.py' % (config.quant_dir, username, notebook)
+    with open(notebook_path, 'w') as n:
+        n.write(text)
+
+
+@app.route('/nb/check_result', methods=['POST'])
+def check_result():
+    check_ret = check_sign()
+    if check_ret is not None:
+        return redirect(url_for('error', error_msg=check_ret))
+    ioa_name = request.form['username']
+    notebook = request.form['notebook']
+    ioa_root_path = '/data/quant/notebook/' + ioa_name + '/'
+
+    output_path = '%s/output.log' % ioa_root_path
+    image_path = '%s/%s.png' % (ioa_root_path, notebook)
+    if not os.path.exists(output_path):
+        return jsonify({})
+    if not os.path.exists(image_path):
+        return jsonify({})
+
+    output = ''
+    with open(output_path, 'r') as f:
+        output = f.read()
+
+    image = ''
+    with open(image_path, 'rb') as f:
+        image = base64.b64encode(f.read())
+
+    return jsonify({0: output, 1: image})
+
+
+@app.route('/nb/run_code', methods=['POST'])
 def run_code():
-    """Run python 3 code
-        :return: JSON object of python 3 output
-            {
-                ...
-            }
-    """
-    # Don't run too many times
+    check_ret = check_sign()
+    if check_ret is not None:
+        return redirect(url_for('error', error_msg=check_ret))
     session["code"] = request.form['text']
+    username = request.form['username']
+    notebook = request.form['notebook']
     text = session["code"]
-    try:
-        session["file_name"]
-        f = open(session["file_name"], "w")
-        for t in text:
-            f.write(t)
-        f.flush()
-        f.close()
-    except KeyError as e:
-        with tempfile.NamedTemporaryFile(delete=False) as temp:
-            session["file_name"] = temp.name
-            for t in text:
-                temp.write(t.encode("utf-8"))
-            temp.flush()
-            temp.close()
-
-
+    session["file_name"] = username
+    # try:
+    #    session["file_name"]
+    #    f = open(session["file_name"], "w")
+    #    for t in text:
+    #        f.write(t)
+    #    f.flush()
+    #    f.close()
+    # except KeyError as e:
+    #    with tempfile.NamedTemporaryFile(delete=False) as temp:
+    #        session["file_name"] = temp.name
+    #        for t in text:
+    #            temp.write(t.encode("utf-8"))
+    #        temp.flush()
+    #        temp.close()
+    print("start")
     if slow():
         print("/run_code exit slow")
-        return jsonify({0:"Running code too much within a short time period. Please wait a few seconds before clicking \"Run\" each time.",1:""})
+        return jsonify({
+            0: "Running code too much within a short time period. Please wait a few seconds before clicking \"Run\" each time.",
+            1: ""})
     session["time_now"] = datetime.now()
 
     output = None
     if 1:
-        ioa_name = session["file_name"]
-        ioa_root_path = '/data/' + ioa_name + '/'
+        ioa_name = username  # session["file_name"]
+        ioa_root_path = '/data/quant/notebook/' + ioa_name + '/'
         cmd = 'mkdir -p ' + ioa_root_path
         os.system(cmd)
         cmd = 'cp /data/third.tar ' + ioa_root_path
         os.system(cmd)
         cmd = 'tar -xvf ' + ioa_root_path + 'third.tar -C ' + ioa_root_path
         os.system(cmd)
-        file_start = open(ioa_root_path + '/start.py', 'rb').read()
-        file_middle = open(session["file_name"], 'rb').read()
-        file_end = open(ioa_root_path + '/end.py', 'rb').read()
-        file_new = open(ioa_root_path + '/run.py', 'wb')
-
+        file_start = open(ioa_root_path + '/start', 'rb').read()
+        file_end = open(ioa_root_path + '/end', 'rb').read()
+        file_new = open(ioa_root_path + '/run', 'wb')
+        config_data = "\nconfig['mod']['sys_analyser']['output_file'] = '%s/%s.pickle'\n" % (ioa_root_path, notebook) + \
+                      "config['mod']['sys_analyser']['plot_save_file'] = '%s/%s.png'\n" % (ioa_root_path, notebook)
         file_new.write(file_start)
-        file_new.write(file_middle)
+        for t in text:
+            file_new.write(t.encode('utf-8'))
+        file_new.write(config_data.encode('utf-8'))
         file_new.write(file_end)
         file_new.close()
-        cmd = 'python3 ' + ioa_root_path + '/run.py'
+        cmd = 'python3 ' + ioa_root_path + '/run'
 
         p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
                   stderr=STDOUT, close_fds=True)
         output = p.stdout.read()
-        image_path = ioa_root_path + '/a.png'
-        f = open(image_path, 'rb')
-        image = base64.b64encode(f.read())
-        return jsonify({0: output.decode('utf-8'), 1: image})
+        # 写入日志，下次读取
+        with open('%s/output.log' % ioa_root_path, 'w') as o:
+            o.write(output.decode('utf-8'))
+        image_path = ioa_root_path + '/' + notebook + '.png'
+        if os.path.exists(image_path):
+            f = open(image_path, 'rb')
+            image = base64.b64encode(f.read())
+            return jsonify({0: output.decode('utf-8'), 1: image})
+        else:
+            return jsonify({0: output.decode('utf-8'), 1: ''})
     else:
         cmd = 'python3 ' + session["file_name"]
 
         p = Popen(cmd, shell=True, stdin=PIPE, stdout=PIPE,
-              stderr=STDOUT, close_fds=True)
+                  stderr=STDOUT, close_fds=True)
         output = p.stdout.read()
         path = '/Users/mingzhepan/github/PythonBuddy/image/a.png'
-        f= open(path,'rb')
+        f = open(path, 'rb')
         image = base64.b64encode(f.read())
-        return jsonify({0:output.decode('utf-8'),1:image})
+        return jsonify({0: output.decode('utf-8'), 1: image})
 
 
 # Slow down if user clicks "Run" too many times
@@ -176,195 +267,10 @@ def slow():
         return True
     return False
 
-def evaluate_pylint(text):
-    """Create temp files for pylint parsing on user code
-
-    :param text: user code
-    :return: dictionary of pylint errors:
-        {
-            {
-                "code":...,
-                "error": ...,
-                "message": ...,
-                "line": ...,
-                "error_info": ...,
-            }
-            ...
-        }
-    """
-    # Open temp file for specific session.
-    # IF it doesn't exist (aka the key doesn't exist), create one
-    try:
-        session["file_name"]
-        f = open(session["file_name"], "w")
-        for t in text:
-            f.write(t)
-        f.flush()
-        f.close()
-    except KeyError as e:
-        with tempfile.NamedTemporaryFile(delete=False) as temp:
-            session["file_name"] = temp.name
-            for t in text:
-                temp.write(t.encode("utf-8"))
-            temp.flush()
-            temp.close()
-    try:
-        ARGS = " -r n --disable=R,C"
-        (pylint_stdout, pylint_stderr) = lint.py_run(
-            session["file_name"] + ARGS, return_std=True)
-    except Exception as e:
-        raise Exception(e)
-
-    if pylint_stderr.getvalue():
-        raise Exception("Issue with pylint configuration")
-
-    return format_errors(pylint_stdout.getvalue())
-
-# def split_error_gen(error):
-#     """Inspired by this Python discussion: https://bugs.python.org/issue17343
-#     Uses a generator to split error by token and save some space
-#
-#         :param error: string to be split
-#         :yield: next line split by new line
-#     """
-#     for e in error.split():
-#         yield e
-
-def process_error(error):
-    """Formats error message into dictionary
-
-        :param error: pylint error full text
-        :return: dictionary of error as:
-            {
-                "code":...,
-                "error": ...,
-                "message": ...,
-                "line": ...,
-                "error_info": ...,
-            }
-    """
-    # Return None if not an error or warning
-    if error == " " or error is None:
-        return None
-    if error.find("Your code has been rated at") > -1:
-        return None
-
-    list_words = error.split()
-    if len(list_words) < 3:
-        return None
-
-    # Detect OS
-    line_num = None
-    if is_os_linux():
-        try:
-            line_num = error.split(":")[1]
-        except Exception as e:
-            print(os.name + " not compatible: " + e)
-    else:
-        line_num = error.split(":")[2]
-
-    # list_words.pop(0)
-    error_yet, message_yet, first_time = False, False, True
-    i, length = 0, len(list_words)
-    # error_code=None
-    while i < length:
-        word = list_words[i]
-        if (word == "error" or word == "warning") and first_time:
-            error_yet = True
-            first_time = False
-            i += 1
-            continue
-        if error_yet:
-            error_code = word[1:-1]
-            error_string = list_words[i + 1][:-1]
-            i = i + 3
-            error_yet = False
-            message_yet = True
-            continue
-        if message_yet:
-            full_message = ' '.join(list_words[i:length - 1])
-            break
-        i += 1
-
-    error_info = pylint_dict_final[error_code]
-
-    return {
-        "code": error_code,
-        "error": error_string,
-        "message": full_message,
-        "line": line_num,
-        "error_info": error_info,
-    }
-
-def format_errors(pylint_text):
-    """Format errors into parsable nested dictionary
-
-    :param pylint_text: original pylint output
-    :return: dictionary of errors as:
-        {
-            {
-                "code":...,
-                "error": ...,
-                "message": ...,
-                "line": ...,
-                "error_info": ...,
-            }
-            ...
-        }
-    """
-    errors_list = pylint_text.splitlines(True)
-
-    # If there is not an error, return nothing
-    if "--------------------------------------------------------------------" in errors_list[1] and \
-            "Your code has been rated at" in errors_list[2] and "module" not in errors_list[0]:
-        return None
-
-    errors_list.pop(0)
-
-    pylint_dict = {}
-    try:
-        pool = Pool(num_cores)
-        pylint_dict = pool.map(process_error, errors_list)
-    finally:
-        pool.close()
-        pool.join()
-        return pylint_dict
-
-    # count = 0
-    # for error in errors_list:
-    #     pylint_dict[count]=process_error(error)
-    #     count +=1
-    return pylint_dict
-
-# def find_error(id):
-#     """Find relevant info about pylint error
-#
-#     :param id: pylint error id
-#     :return: returns error message description
-#
-#     pylint_errors.txt is the result from "pylint --list-msgs"
-#     """
-#     file = open('pylint_errors.txt', 'r')
-#     s = mmap.mmap(file.fileno(), 0, access=mmap.ACCESS_READ)
-#     location = s.find(id.encode())
-#     if location != -1:
-#         search_text = s[location:]
-#         lines = search_text.splitlines(True)
-#         error_message = []
-#         for l in lines:
-#             if l.startswith(':'.encode()):
-#                 full_message = b''.join(error_message)
-#                 full_message = full_message.decode('utf-8')
-#                 replaced = id+"):"
-#                 full_message = full_message.replace(replaced, "")
-#                 full_message = full_message.replace("Used", "Occurs")
-#                 return full_message
-#             error_message.append(l)
-#
-#     return "No information at the moment"
 
 def remove_temp_code_file():
     os.remove(session["file_name"])
+
 
 @socketio.on('disconnect', namespace='/check_disconnect')
 def disconnect():
@@ -373,5 +279,5 @@ def disconnect():
 
 
 if __name__ == "__main__":
-    """Initialize app""" 
+    """Initialize app"""
     socketio.run(app)

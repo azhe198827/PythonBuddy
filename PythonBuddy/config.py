@@ -15,6 +15,12 @@ threads = 1 #指定每个进程开启的线程数
 loglevel = 'info' #日志级别，这个日志级别指的是错误日志的级别，而访问日志的级别无法设置
 access_log_format = '%(t)s %(p)s %(h)s "%(r)s" %(s)s %(L)s %(b)s %(f)s" "%(a)s"'    #设置gunicorn访问日志格式，错误日志无法设置
 
+#quant
+quant_dir = '/data/quant'
+
+# tof
+tof_token = 'P9OUBvtfYw235piL9oxaY1IfHtffvdyB'
+
 """
 其每个选项的含义如下：
 h          remote address
